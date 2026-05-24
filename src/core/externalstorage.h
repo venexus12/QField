@@ -17,9 +17,12 @@
 #ifndef EXTERNALSTORAGE_H
 #define EXTERNALSTORAGE_H
 
+#include <QJsonArray>
 #include <QObject>
 #include <qgsexternalstorage.h>
 #include <qgsexternalstorageregistry.h>
+
+#include <memory>
 
 /**
  * \ingroup core
@@ -33,6 +36,8 @@ class ExternalStorage : public QObject
     Q_PROPERTY( QString lastError READ lastError NOTIFY lastErrorChanged )
 
     Q_PROPERTY( QString fetchedContent READ fetchedContent NOTIFY fetchedContentChanged )
+    Q_PROPERTY( bool isStoring READ isStoring NOTIFY isStoringChanged )
+    Q_PROPERTY( int pendingStoreCount READ pendingStoreCount NOTIFY pendingStoreCountChanged )
 
   public:
     explicit ExternalStorage( QObject *parent = nullptr );
@@ -65,6 +70,16 @@ class ExternalStorage : public QObject
     QString fetchedContent() const;
 
     /**
+     * Returns TRUE if a content store operation is currently running.
+     */
+    bool isStoring() const;
+
+    /**
+     * Returns the number of queued external storage upload requests.
+     */
+    int pendingStoreCount() const;
+
+    /**
      * Triggers a fetch operation to download the content from an external storage and
      * make it available locally.
      * \param url the remote URL of the content
@@ -73,23 +88,56 @@ class ExternalStorage : public QObject
      */
     Q_INVOKABLE void fetch( const QString &url, const QString &authenticationConfigurationId );
 
+    /**
+     * Triggers a store operation to upload local content into external storage.
+     * \param filePath the local file path of the content to store
+     * \param url the remote URL where the content should be stored
+     * \param authenticationConfigurationId the authentication configuration ID used to
+     * connect to the external storage endpoint
+     */
+    Q_INVOKABLE void store( const QString &filePath, const QString &url, const QString &authenticationConfigurationId, bool queueOnError = true );
+
+    /**
+     * Retries queued external storage uploads. Uploading stops at the first failure,
+     * leaving the item queued for a later retry.
+     */
+    Q_INVOKABLE void retryPendingStores();
+
   signals:
     void statusChanged();
     void typeChanged();
     void fetchedContentChanged();
     void lastErrorChanged();
+    void isStoringChanged();
+    void pendingStoreCountChanged();
+    void stored( const QString &filePath, const QString &url );
+    void storeQueued( const QString &filePath, const QString &url );
 
   private slots:
     void contentFetched();
     void contentErrorOccurred( const QString &errorString );
+    void contentStored();
+    void storeFinished();
 
   private:
+    QJsonArray pendingStores() const;
+    void writePendingStores( const QJsonArray &stores );
+    void addPendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId, const QString &storageType );
+    void removePendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId );
+
     Qgis::ContentStatus mStatus = Qgis::ContentStatus::NotStarted;
     QgsExternalStorage *mStorage = nullptr;
     QString mLastError;
 
     QString mFetchUrl;
     std::unique_ptr<QgsExternalStorageFetchedContent> mFetchedContent;
+    QString mStoreFilePath;
+    QString mStoreUrl;
+    QString mStoreAuthenticationConfigurationId;
+    QString mStoreStorageType;
+    bool mStoreQueueOnError = true;
+    bool mRetryingPendingStore = false;
+    std::unique_ptr<QgsExternalStorageStoredContent> mStoredContent;
 };
 
 #endif // EXTERNALSTORAGE_H

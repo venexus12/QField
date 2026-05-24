@@ -1,0 +1,141 @@
+---
+name: Android WebDAV Test
+
+on:
+  push:
+    branches:
+      - codex/**
+      - webdav/**
+      - qfield-webdav/**
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-24.04
+
+    env:
+      BUILD_TYPE: Release
+      CMAKE_BUILD_DIR: /home/runner/builddir
+      ANDROID_BUILD_TOOLS_VERSION: 35.0.1
+      ANDROID_NDK_VERSION: 28.2.13676358
+      APP_NAME: QField WebDAV Test
+      APP_PACKAGE_NAME: qfield_webdav_test
+      APP_ICON: qfield_logo_beta
+      APP_VERSION: 1
+      APP_VERSION_STR: WebDAV Test
+      APK_VERSION_CODE: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Reclaim disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          df . -h
+
+      - name: Prepare variables
+        run: |
+          echo "JAVA_HOME=${JAVA_HOME_17_X64}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ndk.dir=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> local.properties
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1.307.0
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Install Mono
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ca-certificates gnupg
+          sudo gpg --homedir /tmp --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/mono-official-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys 3FA7E0328081BFF6A14DA29AA6A19B38D3D831EF
+          sudo chmod +r /usr/share/keyrings/mono-official-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/mono-official-archive-keyring.gpg] https://download.mono-project.com/repo/ubuntu stable-focal main" | sudo tee /etc/apt/sources.list.d/mono-official-stable.list
+          sudo apt-get update
+          sudo apt-get install -y mono-devel
+
+      - name: Install CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: 3.29.0
+
+      - name: Prepare build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gperf autopoint '^libxcb.*-dev' libxrandr-dev libx11-xcb-dev libsm-dev libegl1-mesa-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev autoconf-archive libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libfuse2 libcups2-dev nasm libltdl-dev
+          wget https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.sh -O /tmp/cmakeinstall.sh
+          chmod +x /tmp/cmakeinstall.sh
+          sudo /tmp/cmakeinstall.sh --prefix=/usr/local --exclude-subdir
+          rm /tmp/cmakeinstall.sh
+
+      - name: Download Sentry Android NDK libs
+        run: |
+          mkdir /tmp/sentry-android-ndk
+          wget https://repo1.maven.org/maven2/io/sentry/sentry-android-ndk/7.22.6/sentry-android-ndk-7.22.6.aar -O /tmp/sentry.zip
+          unzip /tmp/sentry.zip -d /tmp/sentry-android-ndk
+
+      - name: Configure
+        run: |
+          cmake -S "${{ github.workspace }}" \
+            -B "${CMAKE_BUILD_DIR}" \
+            -G Ninja \
+            -D CMAKE_BUILD_TYPE="${BUILD_TYPE}" \
+            -D ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT}" \
+            -D ANDROID_NDK_VERSION="${ANDROID_NDK_VERSION}" \
+            -D ANDROID_BUILD_TOOLS_VERSION="${ANDROID_BUILD_TOOLS_VERSION}" \
+            -D VCPKG_TARGET_TRIPLET="arm64-android" \
+            -D WITH_ALL_FILES_ACCESS="OFF" \
+            -D WITH_SPIX="OFF" \
+            -D APP_VERSION="${APP_VERSION}" \
+            -D APK_VERSION_CODE="${APK_VERSION_CODE}" \
+            -D APP_VERSION_STR="${APP_VERSION_STR}" \
+            -D APP_PACKAGE_NAME="${APP_PACKAGE_NAME}" \
+            -D APP_ICON="${APP_ICON}" \
+            -D APP_NAME="${APP_NAME}" \
+            -D NUGET_USERNAME="opengisch" \
+            -D NUGET_TOKEN="${{ secrets.GITHUB_TOKEN }}" \
+            -D SENTRY_DSN="" \
+            -D SENTRY_ENV="test" \
+            -D SENTRY_IMPORT_PREFIX="/tmp/sentry-android-ndk/jni" \
+            -D VCPKG_INSTALL_OPTIONS="--allow-unsupported"
+
+      - name: Upload dependency build logs on failure
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: build-logs-arm64
+          path: |
+            ${{ env.CMAKE_BUILD_DIR }}/**/*.log
+
+      - name: Build
+        run: cmake --build "${CMAKE_BUILD_DIR}" --config "${BUILD_TYPE}"
+
+      - name: Package debug APK
+        run: |
+          cmake --build "${CMAKE_BUILD_DIR}" --target bundle --config "${BUILD_TYPE}"
+          mkdir -p /tmp/qfield-webdav-test
+          cp "${CMAKE_BUILD_DIR}/src/app/android-build/build/outputs/apk/debug/android-build-debug.apk" /tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: qfield-webdav-test-arm64-debug
+          path: /tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug.apk

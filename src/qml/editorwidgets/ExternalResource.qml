@@ -172,6 +172,14 @@ EditorWidgetBase {
       fetchingIndicator.running = false;
       mainWindow.displayToast(lastError, "error");
     }
+
+    function onStored(filePath, url) {
+      mainWindow.displayToast(qsTr("Attachment uploaded to external storage."));
+    }
+
+    function onStoreQueued(filePath, url) {
+      mainWindow.displayToast(qsTr("Attachment upload queued until connectivity is available."));
+    }
   }
 
   ExpressionEvaluator {
@@ -193,6 +201,39 @@ EditorWidgetBase {
 
   function getResourceFilePath() {
     return ExternalResourceUtils.getAttachmentFilePath(expressionEvaluator.evaluate(), documentViewer, FileUtils);
+  }
+
+  function getExternalStorageUrl(filepath) {
+    const storageUrl = config["StorageUrl"] !== undefined ? config["StorageUrl"] : "";
+    if (storageUrl === "")
+      return "";
+
+    const normalizedUrl = storageUrl.endsWith("/") ? storageUrl : storageUrl + "/";
+    return normalizedUrl + filepath;
+  }
+
+  function storeExternalResource(filepath) {
+    if (externalStorage.type === "" || filepath === "")
+      return false;
+
+    const localPath = prefixToRelativePath + filepath;
+    if (!FileUtils.fileExists(localPath))
+      return false;
+
+    const remoteUrl = getExternalStorageUrl(filepath);
+    if (remoteUrl === "")
+      return false;
+
+    const authConfigId = config["StorageAuthConfigId"] !== undefined ? config["StorageAuthConfigId"] : "";
+    if (authConfigId !== "" && !iface.isAuthenticationConfigurationAvailable(authConfigId)) {
+      mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
+        Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
+      });
+      return false;
+    }
+
+    externalStorage.store(localPath, remoteUrl, authConfigId);
+    return true;
   }
 
   Label {
@@ -491,6 +532,7 @@ EditorWidgetBase {
         // In order to insure an edited image gets refreshed in the feature form, reset the source
         image.source = '';
         image.source = UrlUtils.fromString(prefixToRelativePath + filepath);
+        storeExternalResource(filepath);
         valueChangeRequested(filepath, false);
         enabled = false;
       }
@@ -668,6 +710,7 @@ EditorWidgetBase {
       onFinished: path => {
         const filepath = StringUtils.replaceFilenameTags(getResourceFilePath(), path);
         platformUtilities.renameFile(path, prefixToRelativePath + filepath);
+        storeExternalResource(filepath);
         valueChangeRequested(filepath, false);
         close();
       }
@@ -705,6 +748,7 @@ EditorWidgetBase {
             FileUtils.restrictImageSize(prefixToRelativePath + filepath, maximumWidhtHeight);
           }
         }
+        storeExternalResource(filepath);
         valueChangeRequested(filepath, false);
         close();
       }
@@ -722,6 +766,7 @@ EditorWidgetBase {
         if (maximumWidhtHeight > 0) {
           FileUtils.restrictImageSize(prefixToRelativePath + path, maximumWidhtHeight);
         }
+        storeExternalResource(path);
         valueChangeRequested(path, false);
       }
     }
@@ -824,6 +869,22 @@ EditorWidgetBase {
     audioRecorderLoader.active = true;
   }
 
+  function uploadCurrentExternalResource() {
+    if (!currentValue)
+      return;
+
+    if (!FileUtils.fileExists(prefixToRelativePath + currentValue)) {
+      mainWindow.displayToast(qsTr("Attachment file is not available locally."), "error");
+      return;
+    }
+
+    storeExternalResource(currentValue);
+  }
+
+  function retryPendingExternalResources() {
+    externalStorage.retryPendingStores();
+  }
+
   Component.onCompleted: {
     menu.addItem(capturePhotoMenuItem);
     menu.addItem(captureVideoMenuItem);
@@ -835,6 +896,9 @@ EditorWidgetBase {
     menu.addItem(attachGalleryMenuItem);
     menu.addItem(separatorDrawingItem);
     menu.addItem(attachDrawingMenuItem);
+    menu.addItem(separatorExternalStorageItem);
+    menu.addItem(uploadExternalStorageMenuItem);
+    menu.addItem(retryPendingExternalStorageMenuItem);
     hasMenu = true;
   }
 
@@ -925,6 +989,41 @@ EditorWidgetBase {
         sketcher.clear();
         sketcher.open();
       }
+    }
+
+    MenuSeparator {
+      id: separatorExternalStorageItem
+      width: parent.width
+      visible: uploadExternalStorageMenuItem.visible || retryPendingExternalStorageMenuItem.visible
+      height: visible ? implicitHeight : 0
+    }
+
+    MenuItem {
+      id: uploadExternalStorageMenuItem
+      text: qsTr('Upload attachment to external storage')
+
+      visible: externalStorage.type !== "" && currentValue !== "" && FileUtils.fileExists(prefixToRelativePath + currentValue)
+      enabled: visible && !externalStorage.isStoring
+      font: Theme.defaultFont
+      icon.source: Theme.getThemeVectorIcon("ic_cloud_upload_24dp")
+      height: visible ? 48 : 0
+      leftPadding: Theme.menuItemLeftPadding
+
+      onTriggered: uploadCurrentExternalResource()
+    }
+
+    MenuItem {
+      id: retryPendingExternalStorageMenuItem
+      text: qsTr('Retry pending external storage uploads')
+
+      visible: externalStorage.pendingStoreCount > 0
+      enabled: visible && !externalStorage.isStoring
+      font: Theme.defaultFont
+      icon.source: Theme.getThemeVectorIcon("ic_cloud_synchronize_24dp")
+      height: visible ? 48 : 0
+      leftPadding: Theme.menuItemLeftPadding
+
+      onTriggered: retryPendingExternalResources()
     }
   }
 }
