@@ -487,9 +487,7 @@ RelationEditorBase {
     if (!path || path === "") {
       return "";
     }
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
-    }
+    const isHttp = path.startsWith("http://") || path.startsWith("https://");
     if (FileUtils.fileExists(path)) {
       if (FileUtils.mimeTypeName(path).startsWith("audio/")) {
         audioAnalyzer.enqueue(path);
@@ -519,8 +517,12 @@ RelationEditorBase {
         });
       } else {
         pendingDownloads[path] = true;
-        enqueueExternalFetch(path, referencingFeatureListModel.attachmentStorageUrl + path, authConfigId);
+        const storageUrl = referencingFeatureListModel.attachmentStorageUrl;
+        const remoteUrl = isHttp ? path : storageUrl + path;
+        enqueueExternalFetch(path, remoteUrl, authConfigId);
       }
+    } else if (isHttp) {
+      return path;
     } else if (cloudProjectsModel && cloudProjectsModel.currentProject && cloudProjectsModel.currentProject.attachmentsOnDemandEnabled) {
       pendingDownloads[path] = true;
       cloudProjectConnection.target = cloudProjectsModel.currentProject;

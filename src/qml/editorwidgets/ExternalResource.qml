@@ -84,20 +84,22 @@ EditorWidgetBase {
     if (currentValue != undefined && currentValue !== '') {
       const isHttp = value.startsWith('http://') || value.startsWith('https://');
       const fullValue = isHttp ? value : prefixToRelativePath + value;
-      if (!isHttp && !FileUtils.fileExists(fullValue)) {
+      if (externalStorage.type != "" && (isHttp || !FileUtils.fileExists(fullValue))) {
         prepareValue("");
-        if (externalStorage.type != "") {
-          if (config["StorageAuthConfigId"] !== "" && !iface.isAuthenticationConfigurationAvailable(config["StorageAuthConfigId"])) {
-            mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
-              Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
-            });
-          } else {
-            const storageUrl = config["StorageUrl"] !== undefined ? config["StorageUrl"] : "";
-            const normalizedUrl = storageUrl !== "" && !storageUrl.endsWith("/") ? storageUrl + "/" : storageUrl;
-            externalStorage.fetch(normalizedUrl + value, config["StorageAuthConfigId"]);
+        if (config["StorageAuthConfigId"] !== "" && !iface.isAuthenticationConfigurationAvailable(config["StorageAuthConfigId"])) {
+          mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
+            Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
+          });
+        } else {
+          const remoteUrl = isHttp ? value : getExternalStorageUrl(value);
+          if (remoteUrl !== "") {
+            externalStorage.fetch(remoteUrl, config["StorageAuthConfigId"]);
             fetchingIndicator.running = true;
           }
-        } else if (cloudProjectsModel.currentProject && cloudProjectsModel.currentProject.attachmentsOnDemandEnabled) {
+        }
+      } else if (!isHttp && !FileUtils.fileExists(fullValue)) {
+        prepareValue("");
+        if (cloudProjectsModel.currentProject && cloudProjectsModel.currentProject.attachmentsOnDemandEnabled) {
           cloudProjectConnection.target = cloudProjectsModel.currentProject;
           cloudProjectConnection.downloadAttachmentFileName = value;
           cloudProjectsModel.currentProject.downloadAttachment(value);

@@ -148,6 +148,22 @@ public class QFieldActivity extends QtActivity {
     private File resourceCacheFile;
     private boolean resourceIsEditing;
 
+    private String fileProviderAuthority() {
+        return getPackageName() + ".fileprovider";
+    }
+
+    private void logException(Exception e) {
+        Log.d("QField", e.getMessage() != null ? e.getMessage() : e.toString());
+    }
+
+    private void ensureParentDirectory(File file) throws IOException {
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Could not create directory " +
+                                  parent.getAbsolutePath());
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         prepareQtActivity();
@@ -898,7 +914,7 @@ public class QFieldActivity extends QtActivity {
                     resourceTempFilePath = tempFile.getAbsolutePath();
 
                     Uri fileURI = FileProvider.getUriForFile(
-                        this, "ch.opengis.qfield.fileprovider", tempFile);
+                        this, fileProviderAuthority(), tempFile);
 
                     Log.d("QField",
                           "Camera temporary file uri: " + fileURI.toString());
@@ -907,7 +923,7 @@ public class QFieldActivity extends QtActivity {
                     startActivityForResult(intent, CAMERA_RESOURCE);
                 }
             } catch (IOException e) {
-                Log.d("QField", e.getMessage());
+                logException(e);
                 resourceCanceled("");
             }
         } else {
@@ -968,7 +984,7 @@ public class QFieldActivity extends QtActivity {
             Uri contentUri = Build.VERSION.SDK_INT < 24
                                  ? Uri.fromFile(resourceFile)
                                  : FileProvider.getUriForFile(
-                                       this, "ch.opengis.qfield.fileprovider",
+                                       this, fileProviderAuthority(),
                                        resourceCacheFile);
 
             Intent intent =
@@ -990,10 +1006,10 @@ public class QFieldActivity extends QtActivity {
                 Log.d("QField", "Open intent starting");
                 startActivityForResult(intent, OPEN_RESOURCE);
             } catch (IllegalArgumentException e) {
-                Log.d("QField", e.getMessage());
+                logException(e);
                 resourceCanceled("");
             } catch (Exception e) {
-                Log.d("QField", e.getMessage());
+                logException(e);
                 resourceCanceled("");
             }
         } else {
@@ -1341,13 +1357,20 @@ public class QFieldActivity extends QtActivity {
                 File result = new File(resourcePrefix + finalFilePath);
                 Log.d("QField",
                       "Taken camera picture: " + file.getAbsolutePath());
+                boolean copied = false;
                 try {
+                    ensureParentDirectory(result);
                     InputStream in = new FileInputStream(file);
-                    QFieldUtils.inputStreamToFile(in, result.getPath(),
-                                                  file.length());
+                    copied = QFieldUtils.inputStreamToFile(
+                        in, result.getPath(), file.length());
                     file.delete();
                 } catch (Exception e) {
-                    e.printStackTrace();
+                    logException(e);
+                }
+
+                if (!copied) {
+                    resourceCanceled("");
+                    return;
                 }
 
                 // Let the android scan new media folders/files to make them
@@ -1363,20 +1386,35 @@ public class QFieldActivity extends QtActivity {
             }
         } else if (requestCode == GALLERY_RESOURCE) {
             if (resultCode == RESULT_OK) {
+                if (data == null || data.getData() == null) {
+                    resourceCanceled("");
+                    return;
+                }
                 Uri uri = data.getData();
                 DocumentFile documentFile = DocumentFile.fromSingleUri(
                     getApplication().getApplicationContext(), uri);
+                if (documentFile == null || documentFile.getName() == null) {
+                    resourceCanceled("");
+                    return;
+                }
                 String finalFilePath = QFieldUtils.replaceFilenameTags(
                     resourceFilePath, documentFile.getName());
                 File result = new File(resourcePrefix + finalFilePath);
                 Log.d("QField",
                       "Selected gallery file: " + data.getData().toString());
+                boolean copied = false;
                 try {
+                    ensureParentDirectory(result);
                     InputStream in = getContentResolver().openInputStream(uri);
-                    QFieldUtils.inputStreamToFile(in, result.getPath(),
-                                                  documentFile.length());
+                    copied = QFieldUtils.inputStreamToFile(
+                        in, result.getPath(), documentFile.length());
                 } catch (Exception e) {
-                    Log.d("QField", e.getMessage());
+                    logException(e);
+                }
+
+                if (!copied) {
+                    resourceCanceled("");
+                    return;
                 }
 
                 // Let the android scan new media folders/files to make them
@@ -1392,20 +1430,35 @@ public class QFieldActivity extends QtActivity {
             }
         } else if (requestCode == FILE_PICKER_RESOURCE) {
             if (resultCode == RESULT_OK) {
+                if (data == null || data.getData() == null) {
+                    resourceCanceled("");
+                    return;
+                }
                 Uri uri = data.getData();
                 DocumentFile documentFile = DocumentFile.fromSingleUri(
                     getApplication().getApplicationContext(), uri);
+                if (documentFile == null || documentFile.getName() == null) {
+                    resourceCanceled("");
+                    return;
+                }
                 String finalFilePath = QFieldUtils.replaceFilenameTags(
                     resourceFilePath, documentFile.getName());
                 File result = new File(resourcePrefix + finalFilePath);
                 Log.d("QField", "Selected file picker file: " +
                                     data.getData().toString());
+                boolean copied = false;
                 try {
+                    ensureParentDirectory(result);
                     InputStream in = getContentResolver().openInputStream(uri);
-                    QFieldUtils.inputStreamToFile(in, result.getPath(),
-                                                  documentFile.length());
+                    copied = QFieldUtils.inputStreamToFile(
+                        in, result.getPath(), documentFile.length());
                 } catch (Exception e) {
-                    Log.d("QField", e.getMessage());
+                    logException(e);
+                }
+
+                if (!copied) {
+                    resourceCanceled("");
+                    return;
                 }
 
                 resourceReceived(finalFilePath);
