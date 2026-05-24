@@ -24,6 +24,8 @@
 
 #include <memory>
 
+class QNetworkReply;
+
 /**
  * \ingroup core
  */
@@ -116,6 +118,7 @@ class ExternalStorage : public QObject
   private slots:
     void contentFetched();
     void contentErrorOccurred( const QString &errorString );
+    void storeErrorOccurred( const QString &errorString );
     void contentStored();
     void storeFinished();
 
@@ -124,8 +127,13 @@ class ExternalStorage : public QObject
     void writePendingStores( const QJsonArray &stores );
     void addPendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId, const QString &storageType );
     void removePendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId );
+    bool canUseDirectWebdavStore() const;
+    bool startDirectWebdavStore();
+    void directWebdavStoreFinished( QNetworkReply *reply );
+    void finishStore( bool uploadFailed );
 
     Qgis::ContentStatus mStatus = Qgis::ContentStatus::NotStarted;
+    QString mType;
     QgsExternalStorage *mStorage = nullptr;
     QString mLastError;
 
@@ -138,6 +146,7 @@ class ExternalStorage : public QObject
     bool mStoreQueueOnError = true;
     bool mRetryingPendingStore = false;
     std::unique_ptr<QgsExternalStorageStoredContent> mStoredContent;
+    QNetworkReply *mDirectStoreReply = nullptr;
 };
 
 #endif // EXTERNALSTORAGE_H

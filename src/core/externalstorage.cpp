@@ -16,14 +16,19 @@
 
 #include "externalstorage.h"
 
+#include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QSettings>
+#include <QUrl>
 
 #include <qgsapplication.h>
 #include <qgsauthmanager.h>
+#include <qgsnetworkaccessmanager.h>
 
 #include <utility>
 
@@ -44,14 +49,15 @@ Qgis::ContentStatus ExternalStorage::status() const
 
 QString ExternalStorage::type() const
 {
-  return mStorage ? mStorage->type() : QString();
+  return mType;
 }
 
 void ExternalStorage::setType( const QString &type )
 {
-  if ( mStorage && mStorage->type() == type )
+  if ( mType == type )
     return;
 
+  mType = type;
   mStorage = QgsApplication::instance()->externalStorageRegistry()->externalStorageFromType( type );
   emit typeChanged();
 }
@@ -88,7 +94,7 @@ QString ExternalStorage::fetchedContent() const
 
 bool ExternalStorage::isStoring() const
 {
-  return mStoredContent && mStoredContent->status() == Qgis::ContentStatus::Running;
+  return ( mStoredContent && mStoredContent->status() == Qgis::ContentStatus::Running ) || mDirectStoreReply;
 }
 
 int ExternalStorage::pendingStoreCount() const
@@ -98,12 +104,7 @@ int ExternalStorage::pendingStoreCount() const
 
 void ExternalStorage::store( const QString &filePath, const QString &url, const QString &authenticationConfigurationId, bool queueOnError )
 {
-  if ( !mStorage )
-  {
-    return;
-  }
-
-  if ( mStoredContent )
+  if ( isStoring() )
   {
     if ( queueOnError )
     {
@@ -119,35 +120,35 @@ void ExternalStorage::store( const QString &filePath, const QString &url, const 
   mStoreQueueOnError = queueOnError;
   mLastError.clear();
 
-  mStoredContent.reset( mStorage->store( filePath, url, authenticationConfigurationId ) );
-  if ( !mStoredContent )
+  if ( mStorage )
   {
-    if ( queueOnError )
+    mStoredContent.reset( mStorage->store( filePath, url, authenticationConfigurationId ) );
+    if ( mStoredContent )
     {
-      addPendingStore( filePath, url, authenticationConfigurationId, type() );
+      connect( mStoredContent.get(), &QgsExternalStorageStoredContent::stored, this, &ExternalStorage::contentStored );
+      connect( mStoredContent.get(), &QgsExternalStorageStoredContent::stored, this, &ExternalStorage::storeFinished );
+      connect( mStoredContent.get(), &QgsExternalStorageStoredContent::canceled, this, &ExternalStorage::storeFinished );
+      connect( mStoredContent.get(), &QgsExternalStorageStoredContent::errorOccurred, this, &ExternalStorage::storeErrorOccurred );
+      connect( mStoredContent.get(), &QgsExternalStorageStoredContent::errorOccurred, this, &ExternalStorage::storeFinished );
+
+      mStoredContent->store();
+      emit isStoringChanged();
+      return;
     }
-    else if ( mRetryingPendingStore )
-    {
-      mRetryingPendingStore = false;
-    }
-    mLastError = tr( "Failed to prepare external storage upload." );
-    emit lastErrorChanged();
+  }
+
+  if ( startDirectWebdavStore() )
+  {
     return;
   }
 
-  connect( mStoredContent.get(), &QgsExternalStorageStoredContent::stored, this, &ExternalStorage::contentStored );
-  connect( mStoredContent.get(), &QgsExternalStorageStoredContent::stored, this, &ExternalStorage::storeFinished );
-  connect( mStoredContent.get(), &QgsExternalStorageStoredContent::canceled, this, &ExternalStorage::storeFinished );
-  connect( mStoredContent.get(), &QgsExternalStorageStoredContent::errorOccurred, this, &ExternalStorage::contentErrorOccurred );
-  connect( mStoredContent.get(), &QgsExternalStorageStoredContent::errorOccurred, this, &ExternalStorage::storeFinished );
-
-  mStoredContent->store();
-  emit isStoringChanged();
+  mLastError = tr( "Failed to prepare external storage upload." );
+  finishStore( true );
 }
 
 void ExternalStorage::retryPendingStores()
 {
-  if ( mStoredContent )
+  if ( isStoring() )
   {
     return;
   }
@@ -165,14 +166,6 @@ void ExternalStorage::retryPendingStores()
   if ( !storageType.isEmpty() )
   {
     setType( storageType );
-  }
-
-  if ( !mStorage )
-  {
-    mRetryingPendingStore = false;
-    mLastError = tr( "External storage backend is not available." );
-    emit lastErrorChanged();
-    return;
   }
 
   mRetryingPendingStore = true;
@@ -195,11 +188,15 @@ void ExternalStorage::contentErrorOccurred( const QString &errorString )
   emit lastErrorChanged();
 }
 
+void ExternalStorage::storeErrorOccurred( const QString &errorString )
+{
+  mLastError = errorString;
+}
+
 void ExternalStorage::contentStored()
 {
   if ( mStoredContent && mStoredContent->status() == Qgis::ContentStatus::Finished )
   {
-    removePendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId );
     emit stored( mStoreFilePath, mStoredContent->url() );
   }
 }
@@ -211,18 +208,111 @@ void ExternalStorage::storeFinished()
   if ( mStoredContent && mStoredContent->status() == Qgis::ContentStatus::Failed && mLastError.isEmpty() )
   {
     mLastError = mStoredContent->errorString();
-    emit lastErrorChanged();
-  }
-
-  if ( uploadFailed && mStoreQueueOnError )
-  {
-    addPendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId, mStoreStorageType );
   }
 
   if ( mStoredContent )
   {
     mStoredContent.release()->deleteLater();
   }
+
+  if ( uploadFailed && startDirectWebdavStore() )
+  {
+    return;
+  }
+
+  finishStore( uploadFailed );
+}
+
+bool ExternalStorage::canUseDirectWebdavStore() const
+{
+  const QUrl url( mStoreUrl );
+  const QString scheme = url.scheme().toLower();
+  const QString storageType = mStoreStorageType.isEmpty() ? mType : mStoreStorageType;
+  return ( scheme == QStringLiteral( "http" ) || scheme == QStringLiteral( "https" ) )
+         && storageType.contains( QStringLiteral( "webdav" ), Qt::CaseInsensitive );
+}
+
+bool ExternalStorage::startDirectWebdavStore()
+{
+  if ( !canUseDirectWebdavStore() )
+  {
+    return false;
+  }
+
+  QFile *file = new QFile( mStoreFilePath );
+  if ( !file->open( QIODevice::ReadOnly ) )
+  {
+    mLastError = tr( "Failed to open attachment file for WebDAV upload: %1" ).arg( mStoreFilePath );
+    delete file;
+    return false;
+  }
+
+  QNetworkRequest request( QUrl( mStoreUrl ) );
+  request.setAttribute( QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy );
+  request.setAttribute( QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork );
+  request.setHeader( QNetworkRequest::ContentLengthHeader, file->size() );
+  request.setHeader( QNetworkRequest::ContentTypeHeader, QStringLiteral( "application/octet-stream" ) );
+
+  if ( !mStoreAuthenticationConfigurationId.isEmpty() )
+  {
+    QgsApplication::authManager()->updateNetworkRequest( request, mStoreAuthenticationConfigurationId );
+  }
+
+  mLastError.clear();
+  mDirectStoreReply = QgsNetworkAccessManager::instance()->put( request, file );
+  file->setParent( mDirectStoreReply );
+
+  connect( mDirectStoreReply, &QNetworkReply::finished, this, [this]() {
+    directWebdavStoreFinished( mDirectStoreReply );
+  } );
+
+  emit isStoringChanged();
+  return true;
+}
+
+void ExternalStorage::directWebdavStoreFinished( QNetworkReply *reply )
+{
+  if ( !reply )
+  {
+    finishStore( true );
+    return;
+  }
+
+  const int httpStatus = reply->attribute( QNetworkRequest::HttpStatusCodeAttribute ).toInt();
+  const bool uploadFailed = reply->error() != QNetworkReply::NoError || httpStatus < 200 || httpStatus >= 300;
+
+  if ( uploadFailed )
+  {
+    const QString errorDetails = httpStatus > 0 ? QString::number( httpStatus ) : reply->errorString();
+    mLastError = tr( "Failed to upload attachment to WebDAV (%1)." ).arg( errorDetails );
+  }
+  else
+  {
+    removePendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId );
+    emit stored( mStoreFilePath, mStoreUrl );
+  }
+
+  if ( reply == mDirectStoreReply )
+  {
+    mDirectStoreReply = nullptr;
+  }
+  reply->deleteLater();
+
+  finishStore( uploadFailed );
+}
+
+void ExternalStorage::finishStore( bool uploadFailed )
+{
+  if ( uploadFailed && mStoreQueueOnError )
+  {
+    addPendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId, mStoreStorageType );
+  }
+  else if ( !uploadFailed )
+  {
+    removePendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId );
+  }
+
+  const bool shouldEmitLastError = uploadFailed && !mLastError.isEmpty();
 
   mStoreFilePath.clear();
   mStoreUrl.clear();
@@ -231,6 +321,11 @@ void ExternalStorage::storeFinished()
   mStoreQueueOnError = true;
 
   emit isStoringChanged();
+
+  if ( shouldEmitLastError )
+  {
+    emit lastErrorChanged();
+  }
 
   if ( mRetryingPendingStore )
   {
