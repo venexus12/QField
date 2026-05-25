@@ -33,10 +33,6 @@ allprojects {
 }
 
 def outputPathName = "some.apk"
-def qfieldAndroidKeystore = System.getenv("QFIELD_ANDROID_KEYSTORE") ?: "${System.properties['user.home']}/.android/debug.keystore"
-def qfieldAndroidKeystorePassword = System.getenv("QFIELD_ANDROID_KEYSTORE_PASSWORD") ?: "android"
-def qfieldAndroidKeyAlias = System.getenv("QFIELD_ANDROID_KEY_ALIAS") ?: "androiddebugkey"
-def qfieldAndroidKeyPassword = System.getenv("QFIELD_ANDROID_KEY_PASSWORD") ?: "android"
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
@@ -89,9 +85,6 @@ android {
     }
 
     defaultConfig {
-      applicationId = "ch.opengis.@APP_PACKAGE_NAME@"
-      versionCode = @APK_VERSION_CODE@
-      versionName = "@APP_VERSION_STR@"
       minSdkVersion = @ANDROID_PLATFORM_INT@
       targetSdkVersion = @ANDROID_TARGET_PLATFORM@
       ndk {
@@ -99,24 +92,13 @@ android {
       }
     }
 
-    signingConfigs {
-      qfieldWebdavDebug {
-        storeFile file(qfieldAndroidKeystore)
-        storePassword qfieldAndroidKeystorePassword
-        keyAlias qfieldAndroidKeyAlias
-        keyPassword qfieldAndroidKeyPassword
-      }
-    }
-
     buildTypes {
       release {
-         signingConfig signingConfigs.qfieldWebdavDebug
          ndk {
            abiFilters "@ANDROID_ABI@"
          }
        }
       debug {
-         signingConfig signingConfigs.qfieldWebdavDebug
          ndk {
            abiFilters "@ANDROID_ABI@"
          }

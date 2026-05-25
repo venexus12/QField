@@ -28,11 +28,6 @@ jobs:
       APP_VERSION: ${{ github.run_number }}
       APP_VERSION_STR: WebDAV Test ${{ github.run_number }}
       APK_VERSION_CODE: ${{ github.run_number }}
-      QFIELD_ANDROID_KEYSTORE: /home/runner/.android/qfield-webdav-upload.jks
-      QFIELD_ANDROID_KEYSTORE_BASE64: ${{ secrets.QFIELD_ANDROID_KEYSTORE_BASE64 }}
-      QFIELD_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEYSTORE_PASSWORD || 'android' }}
-      QFIELD_ANDROID_KEY_ALIAS: ${{ secrets.QFIELD_ANDROID_KEY_ALIAS || 'androiddebugkey' }}
-      QFIELD_ANDROID_KEY_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEY_PASSWORD || 'android' }}
       QFIELD_AUTH_CONFIG_XML_BASE64: ${{ secrets.QFIELD_AUTH_CONFIG_XML_BASE64 }}
 
     steps:
@@ -67,29 +62,23 @@ jobs:
       - name: Cache Android debug keystore
         uses: actions/cache@v4
         with:
-          path: ~/.android/qfield-webdav-upload.jks
-          key: qfield-webdav-test-signing-keystore-v2
+          path: ~/.android/debug.keystore
+          key: qfield-webdav-test-debug-keystore-v1
 
-      - name: Ensure Android signing keystore
+      - name: Ensure Android debug keystore
         run: |
           mkdir -p ~/.android
-          if [ -n "${QFIELD_ANDROID_KEYSTORE_BASE64}" ]; then
-            echo "${QFIELD_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${QFIELD_ANDROID_KEYSTORE}"
-          elif [ ! -f "${QFIELD_ANDROID_KEYSTORE}" ]; then
+          if [ ! -f ~/.android/debug.keystore ]; then
             keytool -genkeypair \
-              -keystore "${QFIELD_ANDROID_KEYSTORE}" \
-              -storepass "${QFIELD_ANDROID_KEYSTORE_PASSWORD}" \
-              -alias "${QFIELD_ANDROID_KEY_ALIAS}" \
-              -keypass "${QFIELD_ANDROID_KEY_PASSWORD}" \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=QField WebDAV Test,O=Venexus,C=PL"
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
-          keytool -list \
-            -keystore "${QFIELD_ANDROID_KEYSTORE}" \
-            -storepass "${QFIELD_ANDROID_KEYSTORE_PASSWORD}" \
-            -alias "${QFIELD_ANDROID_KEY_ALIAS}"
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1.307.0
@@ -173,7 +162,6 @@ jobs:
           cmake --build "${CMAKE_BUILD_DIR}" --target bundle --config "${BUILD_TYPE}"
           mkdir -p /tmp/qfield-webdav-test
           cp "${CMAKE_BUILD_DIR}/src/app/android-build/build/outputs/apk/debug/android-build-debug.apk" "/tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug-${GITHUB_RUN_NUMBER}.apk"
-          "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/apksigner" verify --print-certs "/tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug-${GITHUB_RUN_NUMBER}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
