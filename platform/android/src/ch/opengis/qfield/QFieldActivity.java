@@ -537,6 +537,8 @@ public class QFieldActivity extends QtActivity {
             }
         }
 
+        seedBundledAuthenticationConfigurations(dataDirs);
+
         Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setClass(QFieldActivity.this, QtActivity.class);
         // Prevent activity restart
@@ -581,6 +583,44 @@ public class QFieldActivity extends QtActivity {
         }
 
         setIntent(intent);
+    }
+
+    private void seedBundledAuthenticationConfigurations(
+        List<String> dataDirs) {
+        if (dataDirs.isEmpty()) {
+            return;
+        }
+
+        try {
+            String[] authConfigurationFiles = getAssets().list("qfield-auth");
+            if (authConfigurationFiles == null ||
+                authConfigurationFiles.length == 0) {
+                return;
+            }
+
+            File authDirectory = new File(dataDirs.get(0) + "auth/");
+            authDirectory.mkdirs();
+
+            for (String authConfigurationFile : authConfigurationFiles) {
+                if (!authConfigurationFile.toLowerCase().endsWith(".xml")) {
+                    continue;
+                }
+
+                File targetFile =
+                    new File(authDirectory, authConfigurationFile);
+                try (InputStream input = getAssets().open(
+                         "qfield-auth/" + authConfigurationFile);
+                     OutputStream output = new FileOutputStream(targetFile)) {
+                    byte[] buffer = new byte[8192];
+                    int length;
+                    while ((length = input.read(buffer)) > 0) {
+                        output.write(buffer, 0, length);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            Log.w("QField", "Failed to seed bundled authentication configs", e);
+        }
     }
 
     private String getApplicationDirectory() {

@@ -21,6 +21,7 @@ __pycache__
 /platform/android/.build
 /platform/android/*.gradle
 /platform/android/*.xml
+/platform/android/assets/qfield-auth/*.xml
 /.vscode
 *~
 /site

@@ -33,12 +33,20 @@ jobs:
       QFIELD_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEYSTORE_PASSWORD || 'android' }}
       QFIELD_ANDROID_KEY_ALIAS: ${{ secrets.QFIELD_ANDROID_KEY_ALIAS || 'androiddebugkey' }}
       QFIELD_ANDROID_KEY_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEY_PASSWORD || 'android' }}
+      QFIELD_AUTH_CONFIG_XML_BASE64: ${{ secrets.QFIELD_AUTH_CONFIG_XML_BASE64 }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           submodules: recursive
+
+      - name: Bundle optional authentication config
+        run: |
+          if [ -n "${QFIELD_AUTH_CONFIG_XML_BASE64}" ]; then
+            mkdir -p platform/android/assets/qfield-auth
+            echo "${QFIELD_AUTH_CONFIG_XML_BASE64}" | base64 --decode > platform/android/assets/qfield-auth/qfield-auth.xml
+          fi
 
       - name: Reclaim disk space
         run: |
