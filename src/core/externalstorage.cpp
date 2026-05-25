@@ -247,7 +247,15 @@ bool ExternalStorage::startDirectWebdavStore()
     return false;
   }
 
-  QNetworkRequest request( QUrl( mStoreUrl ) );
+  const QUrl url = QUrl::fromUserInput( mStoreUrl );
+  if ( !url.isValid() )
+  {
+    mLastError = tr( "Invalid WebDAV upload URL: %1" ).arg( mStoreUrl );
+    delete file;
+    return false;
+  }
+
+  QNetworkRequest request( url );
   request.setAttribute( QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy );
   request.setAttribute( QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork );
   request.setHeader( QNetworkRequest::ContentLengthHeader, file->size() );
