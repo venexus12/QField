@@ -25,7 +25,7 @@ EditorWidgetBase {
     if (qgisProject == undefined)
       return "";
     let path = "";
-    if (config["RelativeStorage"] === 1 || externalStorage.type != "") {
+    if (config["RelativeStorage"] === 1 || hasExternalStorage()) {
       path = qgisProject.homePath;
       if (!path.endsWith("/"))
         path = path + "/";
@@ -84,16 +84,17 @@ EditorWidgetBase {
     if (currentValue != undefined && currentValue !== '') {
       const isHttp = isHttpUrl(currentValue);
       const fullValue = isHttp ? currentValue : prefixToRelativePath + currentValue;
-      if (externalStorage.type != "" && (isHttp || !FileUtils.fileExists(fullValue))) {
+      if (hasExternalStorage() && (isHttp || !FileUtils.fileExists(fullValue))) {
         prepareValue("");
-        if (config["StorageAuthConfigId"] !== "" && !iface.isAuthenticationConfigurationAvailable(config["StorageAuthConfigId"])) {
+        const authConfigId = getStorageAuthConfigId();
+        if (authConfigId !== "" && !iface.isAuthenticationConfigurationAvailable(authConfigId)) {
           mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
             Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
           });
         } else {
           const remoteUrl = isHttp ? currentValue : getExternalStorageUrl(currentValue);
           if (remoteUrl !== "") {
-            externalStorage.fetch(remoteUrl, config["StorageAuthConfigId"]);
+            externalStorage.fetch(remoteUrl, authConfigId);
             fetchingIndicator.running = true;
           }
         }
@@ -203,11 +204,27 @@ EditorWidgetBase {
 
   function getResourceFilePath() {
     const filepath = ExternalResourceUtils.getAttachmentFilePath(expressionEvaluator.evaluate(), documentViewer, FileUtils);
-    return externalStorage.type !== "" ? getExternalStorageFileName(filepath) : filepath;
+    return hasExternalStorage() ? getExternalStorageFileName(filepath) : filepath;
   }
 
   function isHttpUrl(filepath) {
     return filepath !== undefined && (filepath.startsWith('http://') || filepath.startsWith('https://'));
+  }
+
+  function getStorageType() {
+    return config["StorageType"] !== undefined ? config["StorageType"] : "";
+  }
+
+  function getStorageUrl() {
+    return config["StorageUrl"] !== undefined ? config["StorageUrl"] : "";
+  }
+
+  function getStorageAuthConfigId() {
+    return config["StorageAuthConfigId"] !== undefined ? config["StorageAuthConfigId"] : "";
+  }
+
+  function hasExternalStorage() {
+    return getStorageType() !== "" || getStorageUrl() !== "";
   }
 
   function getExternalStorageFileName(filepath) {
@@ -223,7 +240,7 @@ EditorWidgetBase {
     if (isHttpUrl(filepath))
       return filepath;
 
-    const storageUrl = config["StorageUrl"] !== undefined ? config["StorageUrl"] : "";
+    const storageUrl = getStorageUrl();
     if (storageUrl === "")
       return "";
 
@@ -232,7 +249,7 @@ EditorWidgetBase {
   }
 
   function getStoredResourceValue(filepath) {
-    if (externalStorage.type === "")
+    if (!hasExternalStorage())
       return filepath;
 
     const remoteUrl = getExternalStorageUrl(filepath);
@@ -240,7 +257,7 @@ EditorWidgetBase {
   }
 
   function storeExternalResource(filepath) {
-    if (externalStorage.type === "" || filepath === "")
+    if (!hasExternalStorage() || filepath === "")
       return "";
 
     const localPath = getLocalAttachmentPath(filepath);
@@ -251,7 +268,7 @@ EditorWidgetBase {
     if (remoteUrl === "")
       return "";
 
-    const authConfigId = config["StorageAuthConfigId"] !== undefined ? config["StorageAuthConfigId"] : "";
+    const authConfigId = getStorageAuthConfigId();
     if (authConfigId !== "" && !iface.isAuthenticationConfigurationAvailable(authConfigId)) {
       mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
         Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
@@ -1035,7 +1052,7 @@ EditorWidgetBase {
       id: uploadExternalStorageMenuItem
       text: qsTr('Upload attachment to external storage')
 
-      visible: externalStorage.type !== "" && currentValue !== ""
+      visible: hasExternalStorage() && currentValue !== ""
       enabled: visible && !externalStorage.isStoring
       font: Theme.defaultFont
       icon.source: Theme.getThemeVectorIcon("ic_cloud_upload_24dp")
@@ -1049,7 +1066,7 @@ EditorWidgetBase {
       id: retryPendingExternalStorageMenuItem
       text: qsTr('Retry pending external storage uploads')
 
-      visible: externalStorage.type !== ""
+      visible: hasExternalStorage()
       enabled: visible && !externalStorage.isStoring
       font: Theme.defaultFont
       icon.source: Theme.getThemeVectorIcon("ic_cloud_synchronize_24dp")

@@ -229,7 +229,9 @@ bool ExternalStorage::canUseDirectWebdavStore() const
   const QString scheme = url.scheme().toLower();
   const QString storageType = mStoreStorageType.isEmpty() ? mType : mStoreStorageType;
   return ( scheme == QStringLiteral( "http" ) || scheme == QStringLiteral( "https" ) )
-         && storageType.contains( QStringLiteral( "webdav" ), Qt::CaseInsensitive );
+         && ( storageType.isEmpty()
+              || storageType.contains( QStringLiteral( "webdav" ), Qt::CaseInsensitive )
+              || url.path().contains( QStringLiteral( "/dav/" ), Qt::CaseInsensitive ) );
 }
 
 bool ExternalStorage::startDirectWebdavStore()
