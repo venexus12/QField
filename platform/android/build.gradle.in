@@ -85,6 +85,9 @@ android {
     }
 
     defaultConfig {
+      applicationId = "ch.opengis.@APP_PACKAGE_NAME@"
+      versionCode = @APK_VERSION_CODE@
+      versionName = "@APP_VERSION_STR@"
       minSdkVersion = @ANDROID_PLATFORM_INT@
       targetSdkVersion = @ANDROID_TARGET_PLATFORM@
       ndk {
