@@ -28,6 +28,7 @@ jobs:
       APP_VERSION: ${{ github.run_number }}
       APP_VERSION_STR: WebDAV Test ${{ github.run_number }}
       APK_VERSION_CODE: ${{ github.run_number }}
+      QFIELD_ANDROID_DEBUG_KEYSTORE: /home/runner/.android/debug.keystore
 
     steps:
       - name: Checkout
@@ -154,6 +155,7 @@ jobs:
           cmake --build "${CMAKE_BUILD_DIR}" --target bundle --config "${BUILD_TYPE}"
           mkdir -p /tmp/qfield-webdav-test
           cp "${CMAKE_BUILD_DIR}/src/app/android-build/build/outputs/apk/debug/android-build-debug.apk" "/tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug-${GITHUB_RUN_NUMBER}.apk"
+          "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS_VERSION}/apksigner" verify --print-certs "/tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug-${GITHUB_RUN_NUMBER}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7

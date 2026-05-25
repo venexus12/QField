@@ -33,6 +33,7 @@ allprojects {
 }
 
 def outputPathName = "some.apk"
+def qfieldAndroidDebugKeystore = System.getenv("QFIELD_ANDROID_DEBUG_KEYSTORE") ?: "${System.properties['user.home']}/.android/debug.keystore"
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
@@ -95,13 +96,24 @@ android {
       }
     }
 
+    signingConfigs {
+      qfieldWebdavDebug {
+        storeFile file(qfieldAndroidDebugKeystore)
+        storePassword "android"
+        keyAlias "androiddebugkey"
+        keyPassword "android"
+      }
+    }
+
     buildTypes {
       release {
+         signingConfig signingConfigs.qfieldWebdavDebug
          ndk {
            abiFilters "@ANDROID_ABI@"
          }
        }
       debug {
+         signingConfig signingConfigs.qfieldWebdavDebug
          ndk {
            abiFilters "@ANDROID_ABI@"
          }
