@@ -569,6 +569,15 @@ RelationEditorBase {
       return "";
     }
     const isHttp = isHttpUrl(path);
+    if (isHttp) {
+      const localPath = getLocalAttachmentPath(path);
+      if (FileUtils.fileExists(localPath)) {
+        if (FileUtils.mimeTypeName(localPath).startsWith("audio/")) {
+          audioAnalyzer.enqueue(localPath);
+        }
+        return localPath;
+      }
+    }
     if (FileUtils.fileExists(path)) {
       if (FileUtils.mimeTypeName(path).startsWith("audio/")) {
         audioAnalyzer.enqueue(path);

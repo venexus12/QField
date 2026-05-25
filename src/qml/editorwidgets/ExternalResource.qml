@@ -84,6 +84,11 @@ EditorWidgetBase {
     if (currentValue != undefined && currentValue !== '') {
       const isHttp = isHttpUrl(currentValue);
       const fullValue = isHttp ? currentValue : prefixToRelativePath + currentValue;
+      const localAttachmentPath = isHttp ? getLocalAttachmentPath(currentValue) : "";
+      if (isHttp && FileUtils.fileExists(localAttachmentPath)) {
+        prepareValue(localAttachmentPath);
+        return;
+      }
       if (hasExternalStorage() && (isHttp || !FileUtils.fileExists(fullValue))) {
         prepareValue("");
         const authConfigId = getStorageAuthConfigId();
