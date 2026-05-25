@@ -25,9 +25,9 @@ jobs:
       APP_NAME: QField WebDAV Test
       APP_PACKAGE_NAME: qfield_webdav_test
       APP_ICON: qfield_logo_beta
-      APP_VERSION: 1
-      APP_VERSION_STR: WebDAV Test
-      APK_VERSION_CODE: 1
+      APP_VERSION: ${{ github.run_number }}
+      APP_VERSION_STR: WebDAV Test ${{ github.run_number }}
+      APK_VERSION_CODE: ${{ github.run_number }}
 
     steps:
       - name: Checkout
@@ -50,6 +50,27 @@ jobs:
           echo "ANDROID_NDK_HOME=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
           echo "ndk.dir=/usr/local/lib/android/sdk/ndk/${ANDROID_NDK_VERSION}" >> local.properties
+
+      - name: Cache Android debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: qfield-webdav-test-debug-keystore-v1
+
+      - name: Ensure Android debug keystore
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1.307.0
@@ -132,10 +153,10 @@ jobs:
         run: |
           cmake --build "${CMAKE_BUILD_DIR}" --target bundle --config "${BUILD_TYPE}"
           mkdir -p /tmp/qfield-webdav-test
-          cp "${CMAKE_BUILD_DIR}/src/app/android-build/build/outputs/apk/debug/android-build-debug.apk" /tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug.apk
+          cp "${CMAKE_BUILD_DIR}/src/app/android-build/build/outputs/apk/debug/android-build-debug.apk" "/tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug-${GITHUB_RUN_NUMBER}.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
           name: qfield-webdav-test-arm64-debug
-          path: /tmp/qfield-webdav-test/qfield-webdav-test-arm64-debug.apk
+          path: /tmp/qfield-webdav-test/*.apk
