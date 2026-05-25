@@ -158,6 +158,14 @@ RelationEditorBase {
       }
       displayToast(lastError, 'error');
     }
+
+    function onStored(filePath, url) {
+      mainWindow.displayToast(qsTr("Attachment uploaded to external storage."));
+    }
+
+    function onStoreQueued(filePath, url) {
+      mainWindow.displayToast(qsTr("Attachment upload queued until connectivity is available."));
+    }
   }
 
   AudioAnalyzer {
@@ -202,10 +210,10 @@ RelationEditorBase {
         if (documentViewer === ExternalResource.DocumentImage) {
           let maximumWidthHeight = iface.readProjectNumEntry("qfieldsync", "maximumImageWidthHeight", 0);
           if (maximumWidthHeight > 0) {
-            FileUtils.restrictImageSize(imagePrefix + path, maximumWidthHeight);
+            FileUtils.restrictImageSize(getLocalAttachmentPath(path), maximumWidthHeight);
           }
         }
-        showAddFeaturePopup(undefined, path);
+        showAddFeaturePopup(undefined, finishAttachment(path));
       }
     }
   }
@@ -257,10 +265,12 @@ RelationEditorBase {
     stopAllMedia();
     Qt.inputMethod.hide();
     prepareFeature();
-    platformUtilities.createDir(qgisProject.homePath, 'DCIM');
+    if (!hasExternalStorage()) {
+      platformUtilities.createDir(qgisProject.homePath, 'DCIM');
+    }
     attachmentNamingEvaluator.expressionText = ExternalResourceUtils.getAttachmentNaming(referencingFeatureListModel.relation ? referencingFeatureListModel.relation.referencingLayer : null, referencingFeatureListModel.attachmentFieldName);
     if (platformUtilities.capabilities & PlatformUtilities.NativeCamera && settings.valueBool("nativeCamera2", true)) {
-      let filepath = ExternalResourceUtils.getAttachmentFilePath(attachmentNamingEvaluator.evaluate(), documentViewer, FileUtils);
+      let filepath = getAttachmentFilePath();
       filepath = filepath.replace('{extension}', 'JPG');
       resourceSource = platformUtilities.getCameraPicture(imagePrefix, filepath, FileUtils.fileSuffix(filepath), relationEditor);
     } else {
@@ -273,10 +283,12 @@ RelationEditorBase {
     stopAllMedia();
     Qt.inputMethod.hide();
     prepareFeature();
-    platformUtilities.createDir(qgisProject.homePath, 'DCIM');
+    if (!hasExternalStorage()) {
+      platformUtilities.createDir(qgisProject.homePath, 'DCIM');
+    }
     attachmentNamingEvaluator.expressionText = ExternalResourceUtils.getAttachmentNaming(referencingFeatureListModel.relation ? referencingFeatureListModel.relation.referencingLayer : null, referencingFeatureListModel.attachmentFieldName);
     if (platformUtilities.capabilities & PlatformUtilities.NativeCamera && settings.valueBool("nativeCamera2", true)) {
-      let filepath = ExternalResourceUtils.getAttachmentFilePath(attachmentNamingEvaluator.evaluate(), documentViewer, FileUtils);
+      let filepath = getAttachmentFilePath();
       filepath = filepath.replace('{extension}', 'MP4');
       resourceSource = platformUtilities.getCameraVideo(imagePrefix, filepath, FileUtils.fileSuffix(filepath), relationEditor);
     } else {
@@ -472,6 +484,75 @@ RelationEditorBase {
     }
   }
 
+  function isHttpUrl(path) {
+    return path !== undefined && (path.startsWith("http://") || path.startsWith("https://"));
+  }
+
+  function hasExternalStorage() {
+    return referencingFeatureListModel.attachmentStorageType !== "" || referencingFeatureListModel.attachmentStorageUrl !== "";
+  }
+
+  function getAttachmentFilePath() {
+    const filepath = ExternalResourceUtils.getAttachmentFilePath(attachmentNamingEvaluator.evaluate(), documentViewer, FileUtils);
+    return hasExternalStorage() ? FileUtils.fileName(filepath) : filepath;
+  }
+
+  function getLocalAttachmentPath(path) {
+    const localPath = isHttpUrl(path) ? FileUtils.fileName(path) : path;
+    return imagePrefix + localPath;
+  }
+
+  function getExternalStorageUrl(path) {
+    if (isHttpUrl(path)) {
+      return path;
+    }
+
+    const storageUrl = referencingFeatureListModel.attachmentStorageUrl;
+    if (storageUrl === "") {
+      return "";
+    }
+
+    const normalizedUrl = storageUrl.endsWith("/") ? storageUrl : storageUrl + "/";
+    return normalizedUrl + FileUtils.fileName(path);
+  }
+
+  function storeAttachment(path) {
+    if (!hasExternalStorage() || path === "") {
+      return "";
+    }
+
+    const localPath = getLocalAttachmentPath(path);
+    if (!FileUtils.fileExists(localPath)) {
+      return "";
+    }
+
+    const remoteUrl = getExternalStorageUrl(path);
+    if (remoteUrl === "") {
+      return "";
+    }
+
+    const authConfigId = referencingFeatureListModel.attachmentStorageAuthConfigId;
+    if (authConfigId !== "" && !iface.isAuthenticationConfigurationAvailable(authConfigId)) {
+      mainWindow.displayToast(qsTr("The external storage's authentication configuration ID is missing, please insure it is imported into %1").arg(appName), "error", qsTr("Learn more"), function () {
+        Qt.openUrlExternally('https://docs.qfield.org/how-to/advanced-how-tos/authentication/');
+      });
+      return "";
+    }
+
+    externalStorage.store(localPath, remoteUrl, authConfigId);
+    return remoteUrl;
+  }
+
+  function finishAttachment(path) {
+    const storedUrl = storeAttachment(path);
+    if (storedUrl !== "") {
+      return storedUrl;
+    }
+
+    const remoteUrl = getExternalStorageUrl(path);
+    return hasExternalStorage() && remoteUrl !== "" ? remoteUrl : path;
+  }
+
   function openFeatureForm(feature, nmFeature) {
     stopAllMedia();
     ensureEmbeddedFormLoaded();
@@ -487,7 +568,7 @@ RelationEditorBase {
     if (!path || path === "") {
       return "";
     }
-    const isHttp = path.startsWith("http://") || path.startsWith("https://");
+    const isHttp = isHttpUrl(path);
     if (FileUtils.fileExists(path)) {
       if (FileUtils.mimeTypeName(path).startsWith("audio/")) {
         audioAnalyzer.enqueue(path);
@@ -508,7 +589,7 @@ RelationEditorBase {
       return "";
     }
     // File not found locally; attempt on-demand download
-    if (externalStorage.type !== "") {
+    if (hasExternalStorage()) {
       const authConfigId = referencingFeatureListModel.attachmentStorageAuthConfigId;
       if (authConfigId !== "" && !iface.isAuthenticationConfigurationAvailable(authConfigId)) {
         failedDownloads[path] = true;
@@ -517,8 +598,7 @@ RelationEditorBase {
         });
       } else {
         pendingDownloads[path] = true;
-        const storageUrl = referencingFeatureListModel.attachmentStorageUrl;
-        const remoteUrl = isHttp ? path : storageUrl + path;
+        const remoteUrl = getExternalStorageUrl(path);
         enqueueExternalFetch(path, remoteUrl, authConfigId);
       }
     } else if (isHttp) {
@@ -545,7 +625,7 @@ RelationEditorBase {
         }
 
         onFinished: path => {
-          const filepath = StringUtils.replaceFilenameTags(ExternalResourceUtils.getAttachmentFilePath(attachmentNamingEvaluator.evaluate(), documentViewer, FileUtils), path);
+          const filepath = StringUtils.replaceFilenameTags(getAttachmentFilePath(), path);
           platformUtilities.renameFile(path, imagePrefix + filepath);
           if (!FileUtils.mimeTypeName(path).startsWith("video/")) {
             let maximumWidthHeight = iface.readProjectNumEntry("qfieldsync", "maximumImageWidthHeight", 0);
@@ -553,7 +633,7 @@ RelationEditorBase {
               FileUtils.restrictImageSize(imagePrefix + filepath, maximumWidthHeight);
             }
           }
-          showAddFeaturePopup(undefined, filepath);
+          showAddFeaturePopup(undefined, finishAttachment(filepath));
           close();
         }
         onCanceled: close()
@@ -571,9 +651,9 @@ RelationEditorBase {
         visible: false
         Component.onCompleted: open()
         onFinished: path => {
-          const filepath = StringUtils.replaceFilenameTags(ExternalResourceUtils.getAttachmentFilePath(attachmentNamingEvaluator.evaluate(), documentViewer, FileUtils), path);
+          const filepath = StringUtils.replaceFilenameTags(getAttachmentFilePath(), path);
           platformUtilities.renameFile(path, imagePrefix + filepath);
-          showAddFeaturePopup(undefined, filepath);
+          showAddFeaturePopup(undefined, finishAttachment(filepath));
           close();
         }
         onCanceled: close()
