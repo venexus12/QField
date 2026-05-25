@@ -28,7 +28,11 @@ jobs:
       APP_VERSION: ${{ github.run_number }}
       APP_VERSION_STR: WebDAV Test ${{ github.run_number }}
       APK_VERSION_CODE: ${{ github.run_number }}
-      QFIELD_ANDROID_DEBUG_KEYSTORE: /home/runner/.android/debug.keystore
+      QFIELD_ANDROID_KEYSTORE: /home/runner/.android/qfield-webdav-upload.jks
+      QFIELD_ANDROID_KEYSTORE_BASE64: ${{ secrets.QFIELD_ANDROID_KEYSTORE_BASE64 }}
+      QFIELD_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEYSTORE_PASSWORD || 'android' }}
+      QFIELD_ANDROID_KEY_ALIAS: ${{ secrets.QFIELD_ANDROID_KEY_ALIAS || 'androiddebugkey' }}
+      QFIELD_ANDROID_KEY_PASSWORD: ${{ secrets.QFIELD_ANDROID_KEY_PASSWORD || 'android' }}
 
     steps:
       - name: Checkout
@@ -55,23 +59,29 @@ jobs:
       - name: Cache Android debug keystore
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: qfield-webdav-test-debug-keystore-v1
+          path: ~/.android/qfield-webdav-upload.jks
+          key: qfield-webdav-test-signing-keystore-v2
 
-      - name: Ensure Android debug keystore
+      - name: Ensure Android signing keystore
         run: |
           mkdir -p ~/.android
-          if [ ! -f ~/.android/debug.keystore ]; then
+          if [ -n "${QFIELD_ANDROID_KEYSTORE_BASE64}" ]; then
+            echo "${QFIELD_ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${QFIELD_ANDROID_KEYSTORE}"
+          elif [ ! -f "${QFIELD_ANDROID_KEYSTORE}" ]; then
             keytool -genkeypair \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
+              -keystore "${QFIELD_ANDROID_KEYSTORE}" \
+              -storepass "${QFIELD_ANDROID_KEYSTORE_PASSWORD}" \
+              -alias "${QFIELD_ANDROID_KEY_ALIAS}" \
+              -keypass "${QFIELD_ANDROID_KEY_PASSWORD}" \
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
+              -dname "CN=QField WebDAV Test,O=Venexus,C=PL"
           fi
+          keytool -list \
+            -keystore "${QFIELD_ANDROID_KEYSTORE}" \
+            -storepass "${QFIELD_ANDROID_KEYSTORE_PASSWORD}" \
+            -alias "${QFIELD_ANDROID_KEY_ALIAS}"
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1.307.0

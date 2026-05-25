@@ -33,7 +33,10 @@ allprojects {
 }
 
 def outputPathName = "some.apk"
-def qfieldAndroidDebugKeystore = System.getenv("QFIELD_ANDROID_DEBUG_KEYSTORE") ?: "${System.properties['user.home']}/.android/debug.keystore"
+def qfieldAndroidKeystore = System.getenv("QFIELD_ANDROID_KEYSTORE") ?: "${System.properties['user.home']}/.android/debug.keystore"
+def qfieldAndroidKeystorePassword = System.getenv("QFIELD_ANDROID_KEYSTORE_PASSWORD") ?: "android"
+def qfieldAndroidKeyAlias = System.getenv("QFIELD_ANDROID_KEY_ALIAS") ?: "androiddebugkey"
+def qfieldAndroidKeyPassword = System.getenv("QFIELD_ANDROID_KEY_PASSWORD") ?: "android"
 
 dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
@@ -98,10 +101,10 @@ android {
 
     signingConfigs {
       qfieldWebdavDebug {
-        storeFile file(qfieldAndroidDebugKeystore)
-        storePassword "android"
-        keyAlias "androiddebugkey"
-        keyPassword "android"
+        storeFile file(qfieldAndroidKeystore)
+        storePassword qfieldAndroidKeystorePassword
+        keyAlias qfieldAndroidKeyAlias
+        keyPassword qfieldAndroidKeyPassword
       }
     }
 
