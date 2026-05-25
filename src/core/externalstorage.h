@@ -105,6 +105,11 @@ class ExternalStorage : public QObject
      */
     Q_INVOKABLE void retryPendingStores();
 
+    /**
+     * Retries queued external storage uploads without surfacing transient errors to the UI.
+     */
+    Q_INVOKABLE void retryPendingStoresSilently();
+
   signals:
     void statusChanged();
     void typeChanged();
@@ -127,6 +132,7 @@ class ExternalStorage : public QObject
     void writePendingStores( const QJsonArray &stores );
     void addPendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId, const QString &storageType );
     void removePendingStore( const QString &filePath, const QString &url, const QString &authenticationConfigurationId );
+    void retryPendingStoresInternal( bool reportErrors );
     bool canUseDirectWebdavStore() const;
     bool startDirectWebdavStore();
     void directWebdavStoreFinished( QNetworkReply *reply );
@@ -145,6 +151,7 @@ class ExternalStorage : public QObject
     QString mStoreStorageType;
     bool mStoreQueueOnError = true;
     bool mRetryingPendingStore = false;
+    bool mRetryPendingStoreReportErrors = true;
     std::unique_ptr<QgsExternalStorageStoredContent> mStoredContent;
     QNetworkReply *mDirectStoreReply = nullptr;
 };

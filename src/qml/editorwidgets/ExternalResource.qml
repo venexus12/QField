@@ -190,6 +190,19 @@ EditorWidgetBase {
     }
   }
 
+  Timer {
+    id: pendingStoreRetryTimer
+    interval: 300000
+    repeat: true
+    running: hasExternalStorage() && externalStorage.pendingStoreCount > 0
+
+    onTriggered: {
+      if (!externalStorage.isStoring) {
+        externalStorage.retryPendingStoresSilently();
+      }
+    }
+  }
+
   ExpressionEvaluator {
     id: expressionEvaluator
     feature: currentFeature

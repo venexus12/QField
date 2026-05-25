@@ -35,6 +35,7 @@
 namespace
 {
 const QString PENDING_STORES_KEY = QStringLiteral( "/qfield/externalStorage/pendingStores" );
+bool sPendingStoreRetryInProgress = false;
 }
 
 ExternalStorage::ExternalStorage( QObject *parent )
@@ -148,7 +149,17 @@ void ExternalStorage::store( const QString &filePath, const QString &url, const 
 
 void ExternalStorage::retryPendingStores()
 {
-  if ( isStoring() )
+  retryPendingStoresInternal( true );
+}
+
+void ExternalStorage::retryPendingStoresSilently()
+{
+  retryPendingStoresInternal( false );
+}
+
+void ExternalStorage::retryPendingStoresInternal( bool reportErrors )
+{
+  if ( isStoring() || sPendingStoreRetryInProgress )
   {
     return;
   }
@@ -157,6 +168,8 @@ void ExternalStorage::retryPendingStores()
   if ( stores.isEmpty() )
   {
     mRetryingPendingStore = false;
+    mRetryPendingStoreReportErrors = true;
+    sPendingStoreRetryInProgress = false;
     emit pendingStoreCountChanged();
     return;
   }
@@ -169,6 +182,8 @@ void ExternalStorage::retryPendingStores()
   }
 
   mRetryingPendingStore = true;
+  mRetryPendingStoreReportErrors = reportErrors;
+  sPendingStoreRetryInProgress = true;
   store( storeRequest.value( QStringLiteral( "filePath" ) ).toString(),
          storeRequest.value( QStringLiteral( "url" ) ).toString(),
          storeRequest.value( QStringLiteral( "authenticationConfigurationId" ) ).toString(),
@@ -322,7 +337,9 @@ void ExternalStorage::finishStore( bool uploadFailed )
     removePendingStore( mStoreFilePath, mStoreUrl, mStoreAuthenticationConfigurationId );
   }
 
-  const bool shouldEmitLastError = uploadFailed && !mLastError.isEmpty();
+  const bool shouldEmitLastError = uploadFailed && !mLastError.isEmpty() && ( !mRetryingPendingStore || mRetryPendingStoreReportErrors );
+  const bool wasRetryingPendingStore = mRetryingPendingStore;
+  const bool retryPendingStoreReportErrors = mRetryPendingStoreReportErrors;
 
   mStoreFilePath.clear();
   mStoreUrl.clear();
@@ -337,20 +354,23 @@ void ExternalStorage::finishStore( bool uploadFailed )
     emit lastErrorChanged();
   }
 
-  if ( mRetryingPendingStore )
+  if ( wasRetryingPendingStore )
   {
     if ( uploadFailed )
     {
       mRetryingPendingStore = false;
+      mRetryPendingStoreReportErrors = true;
+      sPendingStoreRetryInProgress = false;
     }
     else
     {
-      retryPendingStores();
+      sPendingStoreRetryInProgress = false;
+      retryPendingStoresInternal( retryPendingStoreReportErrors );
     }
   }
   else if ( !uploadFailed && pendingStoreCount() > 0 )
   {
-    retryPendingStores();
+    retryPendingStoresInternal( true );
   }
 }
 

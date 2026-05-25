@@ -168,6 +168,19 @@ RelationEditorBase {
     }
   }
 
+  Timer {
+    id: pendingStoreRetryTimer
+    interval: 300000
+    repeat: true
+    running: hasExternalStorage() && externalStorage.pendingStoreCount > 0
+
+    onTriggered: {
+      if (!externalStorage.isStoring) {
+        externalStorage.retryPendingStoresSilently();
+      }
+    }
+  }
+
   AudioAnalyzer {
     id: audioAnalyzer
 
@@ -305,42 +318,69 @@ RelationEditorBase {
     relationAudioRecorderLoader.active = true;
   }
 
-  headerActions: [
-    QfToolButton {
-      width: 48
-      height: 48
-      enabled: isEnabled
-      visible: isEnabled
+  function retryPendingExternalStorageUploads() {
+    if (externalStorage.pendingStoreCount === 0) {
+      mainWindow.displayToast(qsTr("No queued external storage uploads."));
+      return;
+    }
 
-      round: false
-      iconSource: {
-        switch (documentViewer) {
-        case ExternalResource.DocumentVideo:
-          return Theme.getThemeVectorIcon("ic_camera_video_black_24dp");
-        case ExternalResource.DocumentAudio:
-          return Theme.getThemeVectorIcon("ic_microphone_black_24dp");
-        default:
-          return Theme.getThemeVectorIcon("ic_camera_photo_black_24dp");
+    externalStorage.retryPendingStores();
+  }
+
+  headerActions: [
+    Row {
+      height: 48
+
+      QfToolButton {
+        width: 48
+        height: 48
+        enabled: isEnabled
+        visible: isEnabled
+
+        round: false
+        iconSource: {
+          switch (documentViewer) {
+          case ExternalResource.DocumentVideo:
+            return Theme.getThemeVectorIcon("ic_camera_video_black_24dp");
+          case ExternalResource.DocumentAudio:
+            return Theme.getThemeVectorIcon("ic_microphone_black_24dp");
+          default:
+            return Theme.getThemeVectorIcon("ic_camera_photo_black_24dp");
+          }
+        }
+        iconColor: Theme.mainTextColor
+        bgcolor: 'transparent'
+        onClicked: {
+          if (!prepareParent()) {
+            return;
+          }
+
+          switch (documentViewer) {
+          case ExternalResource.DocumentVideo:
+            captureVideo();
+            break;
+          case ExternalResource.DocumentAudio:
+            captureAudio();
+            break;
+          default:
+            capturePhoto();
+            break;
+          }
         }
       }
-      iconColor: Theme.mainTextColor
-      bgcolor: 'transparent'
-      onClicked: {
-        if (!prepareParent()) {
-          return;
-        }
 
-        switch (documentViewer) {
-        case ExternalResource.DocumentVideo:
-          captureVideo();
-          break;
-        case ExternalResource.DocumentAudio:
-          captureAudio();
-          break;
-        default:
-          capturePhoto();
-          break;
-        }
+      QfToolButton {
+        width: visible ? 48 : 0
+        height: 48
+        enabled: isEnabled && hasExternalStorage() && !externalStorage.isStoring
+        visible: isEnabled && hasExternalStorage()
+
+        round: false
+        iconSource: Theme.getThemeVectorIcon("ic_cloud_synchronize_24dp")
+        iconColor: externalStorage.pendingStoreCount > 0 ? Theme.mainColor : Theme.mainTextColor
+        bgcolor: 'transparent'
+        bottomRightIndicatorText: externalStorage.pendingStoreCount > 0 ? String(Math.min(externalStorage.pendingStoreCount, 99)) : ""
+        onClicked: retryPendingExternalStorageUploads()
       }
     }
   ]
